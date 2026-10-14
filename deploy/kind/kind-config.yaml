@@ -1,0 +1,21 @@
+# Single-node kind cluster. The API's NodePort (30080) is mapped to localhost:30080,
+# so the service is reachable without kubectl port-forward.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: credit-default
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 30080
+        listenAddress: 127.0.0.1 # local only, not exposed on the LAN
+        protocol: TCP
+# Generous kubeadm timeouts: on small laptops (4 CPUs / 4 GB for Docker) the API server
+# can take a few minutes to come up and the 1-minute defaults fail cluster creation.
+kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    timeouts:
+      controlPlaneComponentHealthCheck: 10m0s
+      kubeletHealthCheck: 10m0s
+      kubernetesAPICall: 5m0s
