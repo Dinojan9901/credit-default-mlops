@@ -1,0 +1,137 @@
+name: Continuous training
+
+# Retrain on a schedule or on demand, compare the challenger against the current
+# production model on the same hold-out set, and only move the `production` alias if the
+# challenger is better (logic in credit_default.registry.promote_if_better).
+#
+# Registry state: if the repository secret MLFLOW_TRACKING_URI points at a real MLflow
+# server, that server is used. Otherwise the SQLite registry + artifacts are carried from
+# one run to the next as a workflow artifact (90-day retention), which is enough to make
+# champion/challenger comparisons across runs without paying for a hosted server.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      n_trials:
+        description: Optuna trials
+        default: "30"
+      min_delta:
+        description: ROC-AUC improvement required to promote
+        default: "0.001"
+
+concurrency:
+  group: retrain
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read # to download the previous run's registry artifact
+
+env:
+  UV_VERSION: "0.13.1"
+  STATE_DIR: ${{ github.workspace }}/mlflow-state
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen --extra train --extra monitor
+      - uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: uci-credit-default-v1
+
+      - name: Configure tracking backend
+        env:
+          REMOTE_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        run: |
+          if [ -n "$REMOTE_URI" ]; then
+            echo "MLFLOW_TRACKING_URI=$REMOTE_URI" >> "$GITHUB_ENV"
+            echo "STATE_MODE=remote" >> "$GITHUB_ENV"
+          else
+            echo "MLFLOW_TRACKING_URI=sqlite:///$STATE_DIR/mlflow.db" >> "$GITHUB_ENV"
+            echo "CD_ARTIFACT_ROOT=file://$STATE_DIR/artifacts" >> "$GITHUB_ENV"
+            echo "STATE_MODE=artifact" >> "$GITHUB_ENV"
+          fi
+
+      - name: Restore registry from the last successful run
+        if: env.STATE_MODE == 'artifact'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$STATE_DIR"
+          run_id=$(gh run list --workflow retrain.yml --status success --limit 1 \
+                     --json databaseId --jq '.[0].databaseId // empty')
+          if [ -n "$run_id" ] && gh run download "$run_id" --name mlflow-registry --dir "$STATE_DIR"; then
+            echo "Restored registry from run $run_id"
+          else
+            echo "No previous registry found - this run bootstraps the first production model"
+          fi
+
+      - name: Drift check of a simulated new batch against production
+        id: drift
+        run: |
+          uv run --no-sync credit-default simulate-drift
+          set +e
+          uv run --no-sync credit-default drift --current data/monitoring/current_drift.csv --threshold 0.3
+          code=$?
+          set -e
+          case "$code" in
+            0) echo "alert=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "alert=true"  >> "$GITHUB_OUTPUT"; echo "::warning::Data drift alert raised" ;;
+            *) echo "alert=skipped" >> "$GITHUB_OUTPUT"
+               echo "::notice::Drift check could not run (no production model yet on the first run)" ;;
+          esac
+
+      - name: Retrain, register and gate-promote
+        env:
+          GIT_COMMIT: ${{ github.sha }}
+          N_TRIALS: ${{ inputs.n_trials || '30' }}
+          MIN_DELTA: ${{ inputs.min_delta || '0.001' }}
+          # A new search seed per run, so a retrain explores different hyperparameters
+          # while the train/val/test split (fixed --seed) stays identical.
+          SEARCH_SEED: ${{ github.run_number }}
+        run: |
+          uv run --no-sync credit-default train \
+            --n-trials "$N_TRIALS" --min-delta "$MIN_DELTA" --search-seed "$SEARCH_SEED" \
+            --summary-out training_summary.json
+
+      - name: Job summary
+        run: |
+          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          s = json.load(open("training_summary.json"))
+          d = s["decision"] or {}
+          print("## Retraining result\n")
+          print(f"- Champion model type this run: `{s['champion']}`")
+          print(f"- Registered version: `{s['model_version']}`")
+          print(f"- Test ROC-AUC: `{s['test_metrics']['roc_auc']:.4f}`")
+          print(f"- Promoted to production: **{d.get('promoted')}** - {d.get('reason')}")
+          print(f"- Drift alert on simulated batch: `${{ steps.drift.outputs.alert }}`")
+          EOF
+
+      - name: Save registry state for the next run
+        if: success() && env.STATE_MODE == 'artifact'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-registry
+          path: ${{ env.STATE_DIR }}
+          retention-days: 90
+          include-hidden-files: true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: retrain-reports
+          path: |
+            training_summary.json
+            reports/drift/
+          if-no-files-found: ignore
