@@ -1,0 +1,99 @@
+# Local stack: MLflow tracking server + registry, the inference API, and (Phase 3)
+# Prometheus + Grafana. Training runs as a one-off container in the "train" profile:
+#
+#   docker compose up -d --build                      # mlflow, api, prometheus, grafana
+#   docker compose --profile train run --rm trainer   # train + register + gate-promote
+#   docker compose restart api                        # pick up the new production model
+#
+# Nothing here is secret: Grafana's admin password is a local-only default that can be
+# overridden via the GF_ADMIN_PASSWORD environment variable.
+
+name: credit-default
+
+services:
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.17.1
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --backend-store-uri=sqlite:////mlflow/mlflow.db
+      - --artifacts-destination=/mlflow/artifacts
+      - --serve-artifacts
+      - --allowed-hosts=mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  trainer:
+    build:
+      context: .
+      target: trainer
+    image: credit-default-trainer:local
+    profiles: ["train"]
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    volumes:
+      - ./data:/app/data
+    command: ["train", "--n-trials", "${N_TRIALS:-30}"]
+    depends_on:
+      mlflow:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      target: api
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+    image: credit-default-api:local
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: credit-default-classifier
+      MODEL_ALIAS: production
+      MODEL_LOAD_RETRY_SECONDS: "15"
+    ports:
+      - "8000:8000"
+    depends_on:
+      mlflow:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/credit-default-api.json
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  mlflow-data:
