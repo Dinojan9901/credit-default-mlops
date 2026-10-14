@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Data and generated artefacts (reproducible via the CLI; never committed)
+data/
+reports/
+mlruns/
+mlartifacts/
+mlflow.db
+*.db
+models/
+
+# Secrets / local config
+.env
+*.pem
+*.key
+kubeconfig*
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
