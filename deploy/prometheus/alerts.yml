@@ -1,0 +1,46 @@
+groups:
+  - name: credit-default-api
+    rules:
+      - alert: ModelNotLoaded
+        expr: model_loaded == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: API is up but has no model loaded (readiness failing)
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 1e-9) > 0.05
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: More than 5% of requests are failing with 5xx
+
+      - alert: HighP95Latency
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{route=~"/predict.*"}[5m]))) > 0.5
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: p95 prediction latency above 500 ms
+
+  - name: credit-default-model
+    rules:
+      # Mean predicted default probability over the last 30 minutes. On the training data
+      # the model's mean score is close to the ~22% base rate; a sustained move outside
+      # [0.10, 0.35] means the inputs (or the world) changed - check the Evidently report.
+      - record: model:mean_predicted_probability:30m
+        expr: |
+          sum(rate(model_prediction_probability_sum[30m]))
+            / clamp_min(sum(rate(model_prediction_probability_count[30m])), 1e-9)
+
+      - alert: PredictionDistributionShift
+        expr: |
+          (model:mean_predicted_probability:30m > 0.35 or model:mean_predicted_probability:30m < 0.10)
+          and sum(increase(model_prediction_probability_count[30m])) > 200
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Mean predicted default probability is {{ $value | printf \"%.2f\" }} (expected 0.10-0.35)"
