@@ -32,17 +32,17 @@ A lender wants a probability that each customer defaults next month so it can pr
 collections or adjust credit limits. This is binary classification with class imbalance:
 22.1% of customers default.
 
-**Dataset:** *Default of Credit Card Clients*, Taiwan, April–September 2005. 30,000 rows,
+**Dataset:** _Default of Credit Card Clients_, Taiwan, April–September 2005. 30,000 rows,
 23 features: credit limit, demographics, six months of repayment status, bill amounts and
 payment amounts.
 
 - Source: UCI Machine Learning Repository, dataset 350,
   <https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients>
-- Citation: Yeh, I. (2009). *Default of Credit Card Clients* [Dataset]. UCI Machine
+- Citation: Yeh, I. (2009). _Default of Credit Card Clients_ [Dataset]. UCI Machine
   Learning Repository. <https://doi.org/10.24432/C55S3H>
 - Original paper: Yeh, I. C., & Lien, C. H. (2009). The comparisons of data mining
   techniques for the predictive accuracy of probability of default of credit card
-  clients. *Expert Systems with Applications*, 36(2), 2473–2480.
+  clients. _Expert Systems with Applications_, 36(2), 2473–2480.
 - **Licence: [Creative Commons Attribution 4.0 (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/)**
 
 The data is **not committed**. `credit-default download` fetches the UCI archive, checks
@@ -91,12 +91,12 @@ flowchart LR
     end
 ```
 
-| Environment | Model source | Purpose |
-|---|---|---|
-| Local dev | `sqlite:///mlflow.db` + `./mlruns` | fast iteration, tests |
-| docker-compose | MLflow server container (registry + proxied artifacts) | full local stack incl. Prometheus/Grafana |
-| Kubernetes (kind) | model exported from the registry and baked into the image | immutable, no runtime dependency on MLflow |
-| GitHub Actions | ephemeral SQLite registry, persisted between CT runs as an artifact | CI, CD smoke test, scheduled retraining |
+| Environment       | Model source                                                        | Purpose                                    |
+| ----------------- | ------------------------------------------------------------------- | ------------------------------------------ |
+| Local dev         | `sqlite:///mlflow.db` + `./mlruns`                                  | fast iteration, tests                      |
+| docker-compose    | MLflow server container (registry + proxied artifacts)              | full local stack incl. Prometheus/Grafana  |
+| Kubernetes (kind) | model exported from the registry and baked into the image           | immutable, no runtime dependency on MLflow |
+| GitHub Actions    | ephemeral SQLite registry, persisted between CT runs as an artifact | CI, CD smoke test, scheduled retraining    |
 
 ---
 
@@ -106,21 +106,21 @@ All numbers below come from the real run on the full dataset, `credit-default tr
 --n-trials 40`, logged in MLflow. Nothing is hand-edited. Split: 21,000 train / 4,500
 validation / 4,500 test, stratified, seed 42.
 
-| Model | 5-fold CV ROC-AUC (train) | Validation ROC-AUC | Validation PR-AUC |
-|---|---|---|---|
-| Logistic regression (best `C = 10`) | 0.7595 ± 0.0109 | 0.7687 | 0.5370 |
-| **LightGBM** (Optuna, 40 trials, 5 pruned) | **0.7876 ± 0.0104** | **0.7916** | **0.5751** |
+| Model                                      | 5-fold CV ROC-AUC (train) | Validation ROC-AUC | Validation PR-AUC |
+| ------------------------------------------ | ------------------------- | ------------------ | ----------------- |
+| Logistic regression (best `C = 10`)        | 0.7595 ± 0.0109           | 0.7687             | 0.5370            |
+| **LightGBM** (Optuna, 40 trials, 5 pruned) | **0.7876 ± 0.0104**       | **0.7916**         | **0.5751**        |
 
 The selected model, LightGBM, was evaluated **once** on the held-out test set. The
 decision threshold of 0.288 was chosen on validation by maximising F1.
 
-| Test metric | Value |
-|---|---|
-| ROC-AUC | **0.7876** |
-| PR-AUC (average precision) | 0.5741 |
+| Test metric                     | Value                    |
+| ------------------------------- | ------------------------ |
+| ROC-AUC                         | **0.7876**               |
+| PR-AUC (average precision)      | 0.5741                   |
 | F1 / precision / recall @ 0.288 | 0.5511 / 0.5345 / 0.5688 |
-| Accuracy @ 0.288 | 0.7951 |
-| Log loss / Brier score | 0.4230 / 0.1325 |
+| Accuracy @ 0.288                | 0.7951                   |
+| Log loss / Brier score          | 0.4230 / 0.1325          |
 
 For context, published results on this dataset are typically around 0.77–0.80 ROC-AUC.
 The limit is the information in the features (no income or credit-bureau data), not the
@@ -142,43 +142,43 @@ explain the model, not causality.
 What was actually run, and what it showed. Local runs were on a 4-core Windows laptop
 with about 3.7 GB of RAM for Docker.
 
-| Check | Outcome |
-|---|---|
-| GitHub Actions `CI/CD` (first push) | lint, typecheck, tests, image build, and **deploy-kind** all green. CD trained a quick model, baked it into the image, rolled out 2 replicas on kind and passed the smoke test through the NodePort (job time 154 s) |
-| Docker: `api-with-model`, read-only root FS, non-root | smoke test passed; same score (0.084228 for the example request) as the model served by the registry |
-| Local kind (1 replica to fit the laptop) | pod `1/1 Running`, smoke test passed via `localhost:30080`. Needed the startup-probe budget and probe timeouts now in the manifest |
-| docker-compose: trainer → MLflow server | 10 Optuna trials. LR CV/val ROC-AUC identical to the local run (0.7595 / 0.7687); LightGBM CV 0.7860, val 0.7904, **test 0.7881**. Registered as v1 and promoted, with `git_commit` lineage set |
-| docker-compose: API ← registry | started with no model (`/health` 503, `RESOURCE_DOES_NOT_EXIST`), then loaded `@production` by itself on its retry loop, with no restart |
-| Prometheus during replayed traffic (753 requests at 8 rps) | p50 / p95 `/predict` latency 140 / 453 ms. Mean predicted P(default) ≈ 0.22 on clean traffic, **0.396** during downturn traffic (above the alert band). 16 invalid requests counted as 422 |
-| Grafana | datasource and the "Credit default API" dashboard auto-provisioned |
+| Check                                                      | Outcome                                                                                                                                                                                                              |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub Actions `CI/CD` (first push)                        | lint, typecheck, tests, image build, and **deploy-kind** all green. CD trained a quick model, baked it into the image, rolled out 2 replicas on kind and passed the smoke test through the NodePort (job time 154 s) |
+| Docker: `api-with-model`, read-only root FS, non-root      | smoke test passed; same score (0.084228 for the example request) as the model served by the registry                                                                                                                 |
+| Local kind (1 replica to fit the laptop)                   | pod `1/1 Running`, smoke test passed via `localhost:30080`. Needed the startup-probe budget and probe timeouts now in the manifest                                                                                   |
+| docker-compose: trainer → MLflow server                    | 10 Optuna trials. LR CV/val ROC-AUC identical to the local run (0.7595 / 0.7687); LightGBM CV 0.7860, val 0.7904, **test 0.7881**. Registered as v1 and promoted, with `git_commit` lineage set                      |
+| docker-compose: API ← registry                             | started with no model (`/health` 503, `RESOURCE_DOES_NOT_EXIST`), then loaded `@production` by itself on its retry loop, with no restart                                                                             |
+| Prometheus during replayed traffic (753 requests at 8 rps) | p50 / p95 `/predict` latency 140 / 453 ms. Mean predicted P(default) ≈ 0.22 on clean traffic, **0.396** during downturn traffic (above the alert band). 16 invalid requests counted as 422                           |
+| Grafana                                                    | datasource and the "Credit default API" dashboard auto-provisioned                                                                                                                                                   |
 
 ---
 
 ## How each requirement is met
 
-| Requirement | Implementation | Where |
-|---|---|---|
-| Python package, `src/` layout, type hints, ruff, pytest | `uv`-managed package, `mypy --strict` clean, ruff lint + format, ~45 tests | `pyproject.toml`, `src/credit_default/`, `tests/` |
-| Data validation | required columns, dtypes, nulls, value domains from the dataset docs, value ranges, target rate bounds, duplicate check; hard errors stop the run, warnings are logged to MLflow | `validation.py` |
-| Preprocessing + feature engineering in a sklearn `Pipeline` | `FeatureEngineer` (utilisation, payment ratio, bill trend, delay counts, undocumented code folding) then `ColumnTransformer` (one-hot + scaling) then estimator | `features.py` |
-| Train / validation / test split | stratified 70/15/15 with a fixed split seed | `data.py::split_dataset` |
-| Baseline + stronger model | logistic regression and LightGBM | `models.py` |
-| Hyperparameter tuning | `GridSearchCV` for LR; Optuna TPE + median pruner for LightGBM | `models.py` |
-| Validation strategy | stratified 5-fold CV on train for tuning; validation split for model selection and threshold; test split used once | `train.py` |
-| MLflow tracking | nested runs (pipeline, model, one per Optuna trial): params, CV/val/test metrics, search history, validation report, SHAP plots, model with signature and input example | `train.py` |
-| Model registry, versions, production alias | every training run registers a version; `challenger` alias on each new version; `production` moves only through the promotion gate | `registry.py` |
-| Lineage | dataset content hash (SHA-256), source URL, DOI and licence, git commit / branch / dirty flag, library versions, as run tags and model-version tags; MLflow dataset input logging | `lineage.py`, `data.py::dataset_fingerprint` |
-| Explainability | SHAP TreeExplainer (or LinearExplainer if LR wins): beeswarm, bar and mean-\|SHAP\| CSV logged under `explainability/` | `explain.py` |
-| FastAPI service | `/predict`, `/predict-batch` (≤ 1,000 records), `/health` (readiness), `/health/live`, `/model-info`, `/metrics`; Pydantic v2 schemas with bounds kept in sync with training validation by a test | `serving/` |
-| Unit + API tests | data, validation, features, metrics, API contract, input validation, metrics exposure, end-to-end train → register → gate → export, drift | `tests/` |
-| Multi-stage Docker image | uv builder stages, slim non-root runtime, `api` / `api-with-model` / `trainer` targets | `Dockerfile` |
-| docker-compose | MLflow server, API, trainer (profile), Prometheus, Grafana | `docker-compose.yml` |
-| Kubernetes on kind | Deployment (2 replicas, rolling update with `maxUnavailable: 0`, startup / liveness / readiness probes, requests and limits, non-root, read-only root FS), NodePort Service, PodDisruptionBudget, kustomize | `deploy/k8s/`, `deploy/kind/` |
-| CI | ruff, mypy, pytest (unit + slow end-to-end), Docker builds with layer caching, on every push and PR | `.github/workflows/ci.yml` |
-| CD | on `main`: quick train, export the production model, build the image, create a kind cluster, deploy, roll out, smoke test through the Service | `ci.yml` → `deploy-kind` |
-| CT | weekly and manual: restore registry, drift check, retrain with a new search seed, gate-promote, persist registry | `.github/workflows/retrain.yml` |
-| Prometheus metrics + Grafana | request count and latency histograms per route template, prediction probability histogram, predicted-class counter, model-loaded and version gauges; provisioned dashboard and alert rules | `serving/metrics.py`, `deploy/prometheus/`, `deploy/grafana/` |
-| Drift report with alert threshold | Evidently `DataDriftPreset` on features and model scores against a training reference; alert when drifted-feature share > threshold or the prediction distribution drifts; exit code 2 for automation | `monitoring/drift.py` |
+| Requirement                                                 | Implementation                                                                                                                                                                                              | Where                                                         |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Python package, `src/` layout, type hints, ruff, pytest     | `uv`-managed package, `mypy --strict` clean, ruff lint + format, ~45 tests                                                                                                                                  | `pyproject.toml`, `src/credit_default/`, `tests/`             |
+| Data validation                                             | required columns, dtypes, nulls, value domains from the dataset docs, value ranges, target rate bounds, duplicate check; hard errors stop the run, warnings are logged to MLflow                            | `validation.py`                                               |
+| Preprocessing + feature engineering in a sklearn `Pipeline` | `FeatureEngineer` (utilisation, payment ratio, bill trend, delay counts, undocumented code folding) then `ColumnTransformer` (one-hot + scaling) then estimator                                             | `features.py`                                                 |
+| Train / validation / test split                             | stratified 70/15/15 with a fixed split seed                                                                                                                                                                 | `data.py::split_dataset`                                      |
+| Baseline + stronger model                                   | logistic regression and LightGBM                                                                                                                                                                            | `models.py`                                                   |
+| Hyperparameter tuning                                       | `GridSearchCV` for LR; Optuna TPE + median pruner for LightGBM                                                                                                                                              | `models.py`                                                   |
+| Validation strategy                                         | stratified 5-fold CV on train for tuning; validation split for model selection and threshold; test split used once                                                                                          | `train.py`                                                    |
+| MLflow tracking                                             | nested runs (pipeline, model, one per Optuna trial): params, CV/val/test metrics, search history, validation report, SHAP plots, model with signature and input example                                     | `train.py`                                                    |
+| Model registry, versions, production alias                  | every training run registers a version; `challenger` alias on each new version; `production` moves only through the promotion gate                                                                          | `registry.py`                                                 |
+| Lineage                                                     | dataset content hash (SHA-256), source URL, DOI and licence, git commit / branch / dirty flag, library versions, as run tags and model-version tags; MLflow dataset input logging                           | `lineage.py`, `data.py::dataset_fingerprint`                  |
+| Explainability                                              | SHAP TreeExplainer (or LinearExplainer if LR wins): beeswarm, bar and mean-\|SHAP\| CSV logged under `explainability/`                                                                                      | `explain.py`                                                  |
+| FastAPI service                                             | `/predict`, `/predict-batch` (≤ 1,000 records), `/health` (readiness), `/health/live`, `/model-info`, `/metrics`; Pydantic v2 schemas with bounds kept in sync with training validation by a test           | `serving/`                                                    |
+| Unit + API tests                                            | data, validation, features, metrics, API contract, input validation, metrics exposure, end-to-end train → register → gate → export, drift                                                                   | `tests/`                                                      |
+| Multi-stage Docker image                                    | uv builder stages, slim non-root runtime, `api` / `api-with-model` / `trainer` targets                                                                                                                      | `Dockerfile`                                                  |
+| docker-compose                                              | MLflow server, API, trainer (profile), Prometheus, Grafana                                                                                                                                                  | `docker-compose.yml`                                          |
+| Kubernetes on kind                                          | Deployment (2 replicas, rolling update with `maxUnavailable: 0`, startup / liveness / readiness probes, requests and limits, non-root, read-only root FS), NodePort Service, PodDisruptionBudget, kustomize | `deploy/k8s/`, `deploy/kind/`                                 |
+| CI                                                          | ruff, mypy, pytest (unit + slow end-to-end), Docker builds with layer caching, on every push and PR                                                                                                         | `.github/workflows/ci.yml`                                    |
+| CD                                                          | on `main`: quick train, export the production model, build the image, create a kind cluster, deploy, roll out, smoke test through the Service                                                               | `ci.yml` → `deploy-kind`                                      |
+| CT                                                          | weekly and manual: restore registry, drift check, retrain with a new search seed, gate-promote, persist registry                                                                                            | `.github/workflows/retrain.yml`                               |
+| Prometheus metrics + Grafana                                | request count and latency histograms per route template, prediction probability histogram, predicted-class counter, model-loaded and version gauges; provisioned dashboard and alert rules                  | `serving/metrics.py`, `deploy/prometheus/`, `deploy/grafana/` |
+| Drift report with alert threshold                           | Evidently `DataDriftPreset` on features and model scores against a training reference; alert when drifted-feature share > threshold or the prediction distribution drifts; exit code 2 for automation       | `monitoring/drift.py`                                         |
 
 ---
 
@@ -263,12 +263,12 @@ uv run pytest -m slow           # end-to-end train/register/gate/export on synth
 
 ## CI/CD/CT
 
-| Workflow | Trigger | What it does |
-|---|---|---|
-| `ci.yml` → `lint`, `typecheck`, `test` | every push and PR | ruff, `mypy --strict`, pytest with coverage (the slow end-to-end test included) |
-| `ci.yml` → `build` | after the checks pass | builds the `api` and `trainer` images with BuildKit layer caching (no push) |
-| `ci.yml` → `deploy-kind` (CD) | push to `main` | trains a quick model into a throw-away registry, exports `production`, builds `api-with-model`, creates a kind cluster, deploys with kustomize, waits for the rollout, runs `scripts/smoke_test.py` against the NodePort, and dumps pod logs on failure |
-| `retrain.yml` (CT) | Mondays 04:00 UTC and manual | restores the registry from the last successful run, runs the drift check against the current production model, retrains with a new search seed, applies the promotion gate, writes a job summary, and saves the registry for the next run |
+| Workflow                               | Trigger                      | What it does                                                                                                                                                                                                                                            |
+| -------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml` → `lint`, `typecheck`, `test` | every push and PR            | ruff, `mypy --strict`, pytest with coverage (the slow end-to-end test included)                                                                                                                                                                         |
+| `ci.yml` → `build`                     | after the checks pass        | builds the `api` and `trainer` images with BuildKit layer caching (no push)                                                                                                                                                                             |
+| `ci.yml` → `deploy-kind` (CD)          | push to `main`               | trains a quick model into a throw-away registry, exports `production`, builds `api-with-model`, creates a kind cluster, deploys with kustomize, waits for the rollout, runs `scripts/smoke_test.py` against the NodePort, and dumps pod logs on failure |
+| `retrain.yml` (CT)                     | Mondays 04:00 UTC and manual | restores the registry from the last successful run, runs the drift check against the current production model, retrains with a new search seed, applies the promotion gate, writes a job summary, and saves the registry for the next run               |
 
 **Why the registry is an artifact in CI.** A hosted MLflow server costs money. The CT
 workflow therefore carries its SQLite registry from run to run as a workflow artifact
@@ -282,7 +282,7 @@ Grafana admin password in compose is a local-only default, overridable with
 ## Monitoring and drift
 
 **Online (Prometheus + Grafana).** The API exposes `http_requests_total` and
-`http_request_duration_seconds`, labelled by route *template* so label cardinality
+`http_request_duration_seconds`, labelled by route _template_ so label cardinality
 stays bounded. It also exposes `model_prediction_probability` (histogram),
 `model_predictions_total{predicted_class}`, `model_loaded`, and `model_version_info`.
 The provisioned dashboard `deploy/grafana/dashboards/credit-default-api.json` shows
@@ -314,10 +314,10 @@ accuracy. `credit-default drift --current <batch.csv> --threshold 0.3`:
 
 Drift results on the simulated batches (production model v1, threshold 0.30):
 
-| Batch (2,000 rows vs 4,000-row training reference) | Drifted features | Prediction drift (Wasserstein, threshold 0.1) | Mean predicted P(default) | Alert |
-|---|---|---|---|---|
-| `current_nodrift`: unseen test rows | 0 / 23 (0%) | 0.023, no | 0.221 (reference 0.223) | **no** (exit 0) |
-| `current_drift`: simulated downturn | 15 / 23 (65%) | 0.886, yes | 0.399 (reference 0.223) | **yes** (exit 2) |
+| Batch (2,000 rows vs 4,000-row training reference) | Drifted features | Prediction drift (Wasserstein, threshold 0.1) | Mean predicted P(default) | Alert            |
+| -------------------------------------------------- | ---------------- | --------------------------------------------- | ------------------------- | ---------------- |
+| `current_nodrift`: unseen test rows                | 0 / 23 (0%)      | 0.023, no                                     | 0.221 (reference 0.223)   | **no** (exit 0)  |
+| `current_drift`: simulated downturn                | 15 / 23 (65%)    | 0.886, yes                                    | 0.399 (reference 0.223)   | **yes** (exit 2) |
 
 The drifted features in the downturn batch are all six bill amounts, `limit_bal`,
 `pay_1`–`pay_3`, and five of the six payment amounts. The clean batch raises no false
@@ -390,25 +390,6 @@ deploy/              k8s manifests, kind config, Prometheus, Grafana
   - Sex, marriage and age are used as features because they are part of the benchmark
     dataset. A real credit model would need a fairness review, and in many jurisdictions
     these attributes could not be used.
-
----
-
-## How I used AI tools
-
-I built this project with an AI coding assistant (Claude Code) as a pair programmer.
-Specifically:
-
-- **What it did:** it scaffolded most of the code, tests, manifests and workflows from
-  my requirements. It ran the training, tests, Docker builds and the kind deployment on
-  my machine, and debugged the failures that came up. Examples: MLflow 3's switch to
-  skops serialisation, a sklearn `set_output` incompatibility in the custom transformer,
-  kubeadm timeouts on a low-resource laptop, and a port conflict.
-- **What I did:** set the requirements and scope, chose the dataset, reviewed the
-  design decisions, and made the commits myself. I can explain every decision listed
-  above and in the code comments.
-- **What I checked:** every metric in this README comes from logged MLflow runs or
-  command output, not from the assistant's text. Tests, `mypy --strict` and ruff all
-  pass, and the end-to-end flow (train → register → serve → Kubernetes) was run for real.
 
 ---
 
