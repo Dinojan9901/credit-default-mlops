@@ -38,13 +38,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
       - run: uv sync --frozen --extra train --extra monitor
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: data/raw
           key: uci-credit-default-v1
@@ -120,14 +120,14 @@ jobs:
 
       - name: Save registry state for the next run
         if: success() && env.STATE_MODE == 'artifact'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mlflow-registry
           path: ${{ env.STATE_DIR }}
           retention-days: 90
           include-hidden-files: true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: retrain-reports
