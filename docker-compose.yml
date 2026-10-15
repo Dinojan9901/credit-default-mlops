@@ -21,16 +21,18 @@ services:
       - --backend-store-uri=sqlite:////mlflow/mlflow.db
       - --artifacts-destination=/mlflow/artifacts
       - --serve-artifacts
+      - --workers=1 # SQLite backend: a single writer process avoids "database is locked"
       - --allowed-hosts=mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000
     ports:
       - "5000:5000"
     volumes:
       - mlflow-data:/mlflow
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=10)"]
       interval: 10s
-      timeout: 5s
-      retries: 12
+      timeout: 15s
+      start_period: 120s
+      retries: 6
 
   trainer:
     build:
