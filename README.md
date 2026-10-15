@@ -151,6 +151,8 @@ with about 3.7 GB of RAM for Docker.
 | docker-compose: API ← registry                             | started with no model (`/health` 503, `RESOURCE_DOES_NOT_EXIST`), then loaded `@production` by itself on its retry loop, with no restart                                                                             |
 | Prometheus during replayed traffic (753 requests at 8 rps) | p50 / p95 `/predict` latency 140 / 453 ms. Mean predicted P(default) ≈ 0.22 on clean traffic, **0.396** during downturn traffic (above the alert band). 16 invalid requests counted as 422                           |
 | Grafana                                                    | datasource and the "Credit default API" dashboard auto-provisioned                                                                                                                                                   |
+| GitHub Actions `Continuous training`, run 1                | no saved registry yet, so drift check skipped; trained, registered v1, promoted ("no production model yet"); registry saved as an artifact                                                                           |
+| GitHub Actions `Continuous training`, run 2                | restored the registry from run 1; **drift alert raised** on the simulated downturn batch; retrained with a new search seed, registered v2 (test ROC-AUC 0.7846); **gate rejected it**: "challenger 0.7846 vs champion 0.7878 (min_delta 0.001) -> keep champion", so production stayed on v1|
 
 ---
 
