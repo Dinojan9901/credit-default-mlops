@@ -137,6 +137,21 @@ credit limits lower risk, and high utilisation raises it. These directions match
 intuition, which is a useful sanity check. SHAP values are on the log-odds scale and
 explain the model, not causality.
 
+### Verification log
+
+What was actually run, and what it showed. Local runs were on a 4-core Windows laptop
+with about 3.7 GB of RAM for Docker.
+
+| Check | Outcome |
+|---|---|
+| GitHub Actions `CI/CD` (first push) | lint, typecheck, tests, image build, and **deploy-kind** all green. CD trained a quick model, baked it into the image, rolled out 2 replicas on kind and passed the smoke test through the NodePort (job time 154 s) |
+| Docker: `api-with-model`, read-only root FS, non-root | smoke test passed; same score (0.084228 for the example request) as the model served by the registry |
+| Local kind (1 replica to fit the laptop) | pod `1/1 Running`, smoke test passed via `localhost:30080`. Needed the startup-probe budget and probe timeouts now in the manifest |
+| docker-compose: trainer → MLflow server | 10 Optuna trials. LR CV/val ROC-AUC identical to the local run (0.7595 / 0.7687); LightGBM CV 0.7860, val 0.7904, **test 0.7881**. Registered as v1 and promoted, with `git_commit` lineage set |
+| docker-compose: API ← registry | started with no model (`/health` 503, `RESOURCE_DOES_NOT_EXIST`), then loaded `@production` by itself on its retry loop, with no restart |
+| Prometheus during replayed traffic (753 requests at 8 rps) | p50 / p95 `/predict` latency 140 / 453 ms. Mean predicted P(default) ≈ 0.22 on clean traffic, **0.396** during downturn traffic (above the alert band). 16 invalid requests counted as 422 |
+| Grafana | datasource and the "Credit default API" dashboard auto-provisioned |
+
 ---
 
 ## How each requirement is met
