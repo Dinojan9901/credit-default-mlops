@@ -299,9 +299,19 @@ accuracy. `credit-default drift --current <batch.csv> --threshold 0.3`:
 
 Drift results on the simulated batches (production model v1, threshold 0.30):
 
-> Pending: the numbers from running the drift check against the registered production
-> model will be added here. Reproduce with `credit-default simulate-drift` followed by
-> `credit-default drift --current data/monitoring/current_drift.csv` (and `current_nodrift.csv`).
+| Batch (2,000 rows vs 4,000-row training reference) | Drifted features | Prediction drift (Wasserstein, threshold 0.1) | Mean predicted P(default) | Alert |
+|---|---|---|---|---|
+| `current_nodrift`: unseen test rows | 0 / 23 (0%) | 0.023, no | 0.221 (reference 0.223) | **no** (exit 0) |
+| `current_drift`: simulated downturn | 15 / 23 (65%) | 0.886, yes | 0.399 (reference 0.223) | **yes** (exit 2) |
+
+The drifted features in the downturn batch are all six bill amounts, `limit_bal`,
+`pay_1`–`pay_3`, and five of the six payment amounts. The clean batch raises no false
+alarm. The downturn's mean score of 0.399 is also above the 0.35 upper bound of the
+Prometheus `PredictionDistributionShift` rule, so the online alert and the batch alert
+agree.
+
+Reproduce with `credit-default simulate-drift`, then `credit-default drift --current
+data/monitoring/current_drift.csv` (or `current_nodrift.csv`).
 
 The "downturn" batch is unseen test rows with plausible shifts applied: credit limits
 cut by 40%, 40% of customers two months further behind on recent payments, bills up 30%,
